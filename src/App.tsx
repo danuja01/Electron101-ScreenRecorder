@@ -1,6 +1,7 @@
 import { useRef, useEffect, useState } from "react";
 import "./App.css";
 import ListDropDown from "./components/listDropdown";
+import { saveAs } from "file-saver";
 
 function App() {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -10,15 +11,18 @@ function App() {
     null
   );
 
+  const [recording, setRecording] = useState(false);
+  const [videoChunks, setVideoChunks] = useState<Blob[]>([]);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+
   const fetchSources = () => {
     window.electronAPI.fetchSources((_event, sources) => {
       setSources(sources);
     });
+    console.log(sources);
   };
 
   const getStream = async () => {
-    console.log(selectedSource?.id);
-
     if (!selectedSource) {
       return;
     }
@@ -44,6 +48,40 @@ function App() {
     }
   };
 
+  const startRecording = () => {
+    if (recording) {
+      // Stop recording
+      mediaRecorderRef.current?.stop();
+      mediaRecorderRef.current?.stream
+        .getTracks()
+        .forEach((track) => track.stop());
+      setRecording(false);
+    } else {
+      // Start recording
+      setRecording(true);
+      const stream = videoRef.current?.srcObject as MediaStream;
+      if (stream) {
+        const options = { mimeType: "video/webm" };
+        const mediaRecorder = new MediaRecorder(stream, options);
+        mediaRecorderRef.current = mediaRecorder;
+
+        mediaRecorder.ondataavailable = (event) => {
+          if (event.data && event.data.size > 0) {
+            setVideoChunks((prevChunks) => [...prevChunks, event.data]);
+          }
+        };
+
+        mediaRecorder.onstop = () => {
+          const blob = new Blob(videoChunks, { type: "video/webm" });
+          saveAs(blob, "recorded-video.webm");
+          setVideoChunks([]);
+        };
+
+        mediaRecorder.start();
+      }
+    }
+  };
+
   useEffect(() => {
     fetchSources();
   }, []);
@@ -53,6 +91,10 @@ function App() {
       getStream();
     }
   }, [selectedSource]);
+
+  useEffect(() => {
+    console.log(videoChunks);
+  }, [videoChunks]);
 
   return (
     <div className="mx-12 max-w-full h-full">
@@ -91,6 +133,14 @@ function App() {
           src=""
         ></video>
       </div>
+      <button
+        className={`${
+          recording ? "bg-red-600" : "bg-green-600"
+        } text-gray-100 mt-4 px-2 py-2 rounded-md w-24`}
+        onClick={startRecording}
+      >
+        {recording ? "Stop" : "Record"}
+      </button>
     </div>
   );
 }
